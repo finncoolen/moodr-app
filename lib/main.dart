@@ -1,16 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'providers/recording_provider.dart';
 import 'screens/home_screen.dart';
+import 'screens/onboarding_screen.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const MoodrApp());
+
+  // Check if onboarding is complete
+  final prefs = await SharedPreferences.getInstance();
+  final onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
+
+  runApp(MoodrApp(showOnboarding: !onboardingComplete));
 }
 
 class MoodrApp extends StatelessWidget {
-  const MoodrApp({super.key});
+  final bool showOnboarding;
+
+  const MoodrApp({super.key, required this.showOnboarding});
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +32,7 @@ class MoodrApp extends StatelessWidget {
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
           useMaterial3: true,
         ),
-        home: const HomeScreen(),
+        home: showOnboarding ? const OnboardingScreen() : const HomeScreen(),
       ),
     );
   }

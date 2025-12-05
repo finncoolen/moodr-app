@@ -10,15 +10,17 @@ class TranscriptionService {
   static const String _baseUrl = 'http://192.168.1.248:8000';
 
   /// Transcribe an audio file using the FastAPI backend
-  /// Returns the transcribed text
-  Future<String> transcribeAudio(String filePath) async {
+  /// Returns the transcribed text or status message
+  Future<String> transcribeAudio(String filePath, String userId) async {
     final file = File(filePath);
 
     if (!await file.exists()) {
       throw Exception('Audio file not found');
     }
 
-    final uri = Uri.parse('$_baseUrl/transcribe');
+    final uri = Uri.parse(
+      '$_baseUrl/upload/audio/',
+    ).replace(queryParameters: {'user_id': userId});
 
     // Create multipart request
     final request = http.MultipartRequest('POST', uri);
@@ -44,11 +46,11 @@ class TranscriptionService {
 
     if (response.statusCode == 200) {
       final jsonResponse = jsonDecode(response.body);
-      // The OpenAI transcription response has a 'text' field
-      return jsonResponse['text'] ?? jsonResponse.toString();
+      // Backend returns status and message for queued transcription
+      return jsonResponse['message'] ?? 'Transcription queued successfully';
     } else {
       throw Exception(
-        'Transcription failed with status ${response.statusCode}: ${response.body}',
+        'Upload failed with status ${response.statusCode}: ${response.body}',
       );
     }
   }

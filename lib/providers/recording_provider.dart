@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/transcription_service.dart';
 
@@ -13,12 +14,16 @@ class RecordingProvider extends ChangeNotifier {
   final AudioRecorder _audioRecorder = AudioRecorder();
   final TranscriptionService _transcriptionService = TranscriptionService();
 
+  // User ID for API requests (hardcoded for now, can be replaced with auth later)
+  final String _userId = 'user_123';
+
   RecordingState _state = RecordingState.idle;
   String _transcribedText = '';
   String? _audioFilePath;
   String _errorMessage = '';
   int _remainingSeconds = 60;
   Timer? _recordingTimer;
+  bool _hasRecordedToday = false;
 
   // Getters
   RecordingState get state => _state;
@@ -27,9 +32,44 @@ class RecordingProvider extends ChangeNotifier {
   String get errorMessage => _errorMessage;
   int get remainingSeconds => _remainingSeconds;
   bool get isRecording => _state == RecordingState.recording;
+  String get userId => _userId;
+  bool get hasRecordedToday => _hasRecordedToday;
+  bool get canRecord =>
+      !_hasRecordedToday && _state != RecordingState.completed;
+
+  RecordingProvider() {
+    _checkDailyUsage();
+  }
+
+  /// Check if user has already recorded today
+  Future<void> _checkDailyUsage() async {
+    final prefs = await SharedPreferences.getInstance();
+    final lastRecordingDate = prefs.getString('last_recording_date');
+    final today = DateTime.now().toIso8601String().split('T')[0];
+
+    _hasRecordedToday = lastRecordingDate == today;
+    notifyListeners();
+  }
+
+  /// Mark today as recorded
+  Future<void> _markTodayAsRecorded() async {
+    final prefs = await SharedPreferences.getInstance();
+    final today = DateTime.now().toIso8601String().split('T')[0];
+    await prefs.setString('last_recording_date', today);
+    _hasRecordedToday = true;
+    notifyListeners();
+  }
 
   /// Start recording audio for up to 1 minute
   Future<void> startRecording() async {
+    // Check if already recorded today
+    if (_hasRecordedToday) {
+      _state = RecordingState.error;
+      _errorMessage = 'You have already recorded today. Come back tomorrow!';
+      notifyListeners();
+      return;
+    }
+
     try {
       // Check permission
       if (!await _audioRecorder.hasPermission()) {
@@ -108,9 +148,14 @@ class RecordingProvider extends ChangeNotifier {
     try {
       final transcription = await _transcriptionService.transcribeAudio(
         filePath,
+        _userId,
       );
       _transcribedText = transcription;
       _state = RecordingState.completed;
+
+      // Mark today as recorded
+      await _markTodayAsRecorded();
+
       notifyListeners();
     } catch (e) {
       _state = RecordingState.error;
@@ -127,6 +172,15 @@ class RecordingProvider extends ChangeNotifier {
     _transcribedText = '';
     _errorMessage = '';
     _remainingSeconds = 60;
+    notifyListeners();
+  }
+
+  /// Reset the daily recording limit to allow recording again
+  Future<void> resetDailyLimit() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('last_recording_date');
+    _hasRecordedToday = false;
+    reset();
     notifyListeners();
   }
 
