@@ -14,6 +14,13 @@ class AuthProvider extends ChangeNotifier {
   AuthProvider() {
     // Listen to auth state changes
     _supabase.auth.onAuthStateChange.listen((data) {
+      final event = data.event;
+      // If token refresh fails or user is deleted, sign out
+      if (event == AuthChangeEvent.signedOut ||
+          event == AuthChangeEvent.userDeleted ||
+          event == AuthChangeEvent.tokenRefreshed && data.session == null) {
+        debugPrint('Auth state change: $event');
+      }
       notifyListeners();
     });
   }
@@ -46,6 +53,26 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> signOut() async {
     await _supabase.auth.signOut();
+    notifyListeners();
+  }
+
+  Future<void> deleteAccount() async {
+    final user = currentUser;
+    if (user == null) {
+      throw Exception('No user logged in');
+    }
+
+    // Delete user's data from reports table
+    await _supabase.from('reports').delete().eq('user_id', user.id);
+
+    // Delete user's data from transcriptions table
+    await _supabase.from('transcriptions').delete().eq('user_id', user.id);
+
+    // Delete the user account (requires admin privileges or RLS policy)
+    // Note: This uses Supabase's admin API to delete the user
+    // You may need to implement a backend endpoint for this
+    await _supabase.auth.admin.deleteUser(user.id);
+
     notifyListeners();
   }
 

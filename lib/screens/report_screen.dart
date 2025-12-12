@@ -302,6 +302,9 @@ class _ReportScreenState extends State<ReportScreen> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
+              border: Border(
+                left: BorderSide(color: const Color(0xFF9B87F5), width: 4),
+              ),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.05),
@@ -356,7 +359,7 @@ class _ReportScreenState extends State<ReportScreen> {
                     if (report.ideas.isNotEmpty) ...[
                       _buildSectionHeader(
                         'Ideas',
-                        Icons.lightbulb_outline,
+                        Icons.emoji_objects_outlined,
                         const Color(0xFFFDB43C),
                       ),
                       const SizedBox(height: 12),
@@ -370,7 +373,7 @@ class _ReportScreenState extends State<ReportScreen> {
                     if (report.feelings.isNotEmpty) ...[
                       _buildSectionHeader(
                         'Feelings',
-                        Icons.favorite_border,
+                        Icons.favorite_outline,
                         const Color(0xFFFF6B9D),
                       ),
                       const SizedBox(height: 12),

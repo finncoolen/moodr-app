@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -12,7 +13,36 @@ class TranscriptionService {
 
   /// Transcribe an audio file using the FastAPI backend
   /// Returns the transcribed text or status message
+  /// Includes retry logic for failed uploads
   Future<String> transcribeAudio(String filePath, String userId) async {
+    const maxRetries = 3;
+    int attempt = 0;
+    Exception? lastException;
+
+    while (attempt < maxRetries) {
+      try {
+        return await _uploadAudio(filePath, userId);
+      } catch (e) {
+        lastException = e is Exception ? e : Exception(e.toString());
+        attempt++;
+
+        if (attempt < maxRetries) {
+          // Wait before retrying (exponential backoff: 2s, 4s, 8s)
+          await Future.delayed(Duration(seconds: 2 * attempt));
+          debugPrint(
+            'Retry attempt $attempt/$maxRetries for transcription upload',
+          );
+        }
+      }
+    }
+
+    // All retries failed
+    throw lastException ??
+        Exception('Upload failed after $maxRetries attempts');
+  }
+
+  /// Internal method to upload audio file
+  Future<String> _uploadAudio(String filePath, String userId) async {
     final file = File(filePath);
 
     if (!await file.exists()) {

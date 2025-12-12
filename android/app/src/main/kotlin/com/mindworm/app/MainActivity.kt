@@ -1,4 +1,4 @@
-package com.example.moodr
+package com.mindworm.app
 
 import io.flutter.embedding.android.FlutterActivity
 

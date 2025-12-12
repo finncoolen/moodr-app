@@ -24,19 +24,42 @@ void main() async {
   final prefs = await SharedPreferences.getInstance();
   final onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
 
-  // Check if user is authenticated
-  final hasSession = Supabase.instance.client.auth.currentSession != null;
+  // Check if user is authenticated and actually exists in database
+  bool hasSession = Supabase.instance.client.auth.currentSession != null;
+
+  if (hasSession) {
+    // Verify user exists in database by making a simple query
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId != null) {
+        // Try to fetch user's data - this will fail if user doesn't exist
+        await Supabase.instance.client
+            .from('reports')
+            .select('id')
+            .eq('user_id', userId)
+            .limit(1);
+      }
+    } catch (e) {
+      // If user doesn't exist in database, sign them out
+      debugPrint('User validation failed: $e');
+      await Supabase.instance.client.auth.signOut();
+      hasSession = false;
+    }
+  }
 
   runApp(
-    MoodrApp(showOnboarding: !onboardingComplete, isAuthenticated: hasSession),
+    MindwormApp(
+      showOnboarding: !onboardingComplete,
+      isAuthenticated: hasSession,
+    ),
   );
 }
 
-class MoodrApp extends StatelessWidget {
+class MindwormApp extends StatelessWidget {
   final bool showOnboarding;
   final bool isAuthenticated;
 
-  const MoodrApp({
+  const MindwormApp({
     super.key,
     required this.showOnboarding,
     required this.isAuthenticated,
@@ -51,7 +74,7 @@ class MoodrApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ReportsProvider()),
       ],
       child: MaterialApp(
-        title: 'Moodr',
+        title: 'Mindworm',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
