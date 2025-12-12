@@ -1,39 +1,38 @@
 class Report {
-  final String emotional;
-  final String cognitive;
-  final String physical;
-  final String motivational;
-  final String social;
+  final String id;
+  final List<String> ideas;
+  final List<String> feelings;
+  final List<String> reminders;
+  final List<String> actionItems;
   final DateTime createdAt;
 
   Report({
-    required this.emotional,
-    required this.cognitive,
-    required this.physical,
-    required this.motivational,
-    required this.social,
+    required this.id,
+    required this.ideas,
+    required this.feelings,
+    required this.reminders,
+    required this.actionItems,
     required this.createdAt,
   });
 
   factory Report.fromJson(Map<String, dynamic> json) {
     final reportData = json['report'] as Map<String, dynamic>;
     return Report(
-      emotional: reportData['emotional'] as String,
-      cognitive: reportData['cognitive'] as String,
-      physical: reportData['physical'] as String,
-      motivational: reportData['motivational'] as String,
-      social: reportData['social'] as String,
+      id: json['id'] as String,
+      ideas: List<String>.from(reportData['ideas'] ?? []),
+      feelings: List<String>.from(reportData['feelings'] ?? []),
+      reminders: List<String>.from(reportData['reminders'] ?? []),
+      actionItems: List<String>.from(reportData['action_items'] ?? []),
       createdAt: DateTime.parse(json['created_at'] as String),
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'emotional': emotional,
-      'cognitive': cognitive,
-      'physical': physical,
-      'motivational': motivational,
-      'social': social,
+      'ideas': ideas,
+      'feelings': feelings,
+      'reminders': reminders,
+      'action_items': actionItems,
       'created_at': createdAt.toIso8601String(),
     };
   }

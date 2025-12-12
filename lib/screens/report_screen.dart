@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 import '../models/report.dart';
-import '../services/report_service.dart';
+import '../providers/reports_provider.dart';
 
 class ReportScreen extends StatefulWidget {
   final String userId;
@@ -14,50 +15,38 @@ class ReportScreen extends StatefulWidget {
 }
 
 class _ReportScreenState extends State<ReportScreen> {
-  final ReportService _reportService = ReportService();
-  bool _isLoading = true;
-  Report? _report;
-  String? _errorMessage;
+  final Set<int> _expandedReportIndices = {
+    0,
+  }; // First report expanded by default
 
   @override
   void initState() {
     super.initState();
-    _loadReport();
+    // Load reports when screen initializes
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<ReportsProvider>().loadReports(widget.userId);
+    });
   }
 
-  Future<void> _loadReport() async {
+  void _toggleReportExpansion(int index) {
     setState(() {
-      _isLoading = true;
-      _errorMessage = null;
+      if (_expandedReportIndices.contains(index)) {
+        _expandedReportIndices.remove(index);
+      } else {
+        _expandedReportIndices.add(index);
+      }
     });
-
-    try {
-      final report = await _reportService.getLatestReport(widget.userId);
-      setState(() {
-        _report = report;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Failed to load report: $e';
-        _isLoading = false;
-      });
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              Color(0xFFFFF5F5), // Soft warm pink
-              Color(0xFFFFF9E5), // Warm vanilla
-              Color(0xFFF5F5FF), // Soft lavender
-            ],
+            colors: [Colors.deepPurple.shade400, Colors.purple.shade300],
           ),
         ),
         child: SafeArea(
@@ -65,33 +54,49 @@ class _ReportScreenState extends State<ReportScreen> {
             children: [
               // Header with back button
               Padding(
-                padding: const EdgeInsets.all(16.0),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16.0,
+                  vertical: 8,
+                ),
                 child: Row(
                   children: [
-                    GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: const Icon(Icons.arrow_back, size: 24),
-                      ),
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: () => Navigator.pop(context),
                     ),
-                    const SizedBox(width: 16),
+                    const SizedBox(width: 8),
                     const Text(
-                      'Your Latest Report',
+                      'Your Feed',
                       style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
                       ),
                     ),
                   ],
                 ),
               ),
-              Expanded(child: _buildBody()),
+              const SizedBox(height: 20),
+              Expanded(
+                child: Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFFFFF5F5), // Soft warm pink
+                        Color(0xFFFFF9E5), // Warm vanilla
+                        Color(0xFFF5F5FF), // Soft lavender
+                      ],
+                    ),
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(32),
+                      topRight: Radius.circular(32),
+                    ),
+                  ),
+                  child: _buildBody(),
+                ),
+              ),
             ],
           ),
         ),
@@ -100,267 +105,359 @@ class _ReportScreenState extends State<ReportScreen> {
   }
 
   Widget _buildBody() {
-    if (_isLoading) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                color: const Color(0xFF9B87F5).withOpacity(0.15),
-                shape: BoxShape.circle,
-              ),
-              child: const Center(
-                child: CircularProgressIndicator(
-                  strokeWidth: 3,
-                  color: Color(0xFF9B87F5),
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Loading your report...',
-              style: TextStyle(fontSize: 16, color: Colors.black87),
-            ),
-          ],
-        ),
-      );
-    }
+    return Consumer<ReportsProvider>(
+      builder: (context, reportsProvider, child) {
+        final isLoading = reportsProvider.isLoading;
+        final errorMessage = reportsProvider.errorMessage;
+        final reports = reportsProvider.reports;
 
-    if (_errorMessage != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 60,
-                height: 60,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFF6B6B).withOpacity(0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.error_outline_rounded,
-                  color: Color(0xFFFF6B6B),
-                  size: 32,
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Oops!',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                _errorMessage!,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.black.withOpacity(0.5),
-                ),
-              ),
-              const SizedBox(height: 24),
-              GestureDetector(
-                onTap: _loadReport,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 12,
-                  ),
+        if (isLoading && reports.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 60,
+                  height: 60,
                   decoration: BoxDecoration(
-                    color: Colors.black87,
-                    borderRadius: BorderRadius.circular(20),
+                    color: const Color(0xFF9B87F5).withOpacity(0.15),
+                    shape: BoxShape.circle,
                   ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.refresh_rounded,
-                        size: 20,
-                        color: Colors.white,
-                      ),
-                      SizedBox(width: 8),
-                      Text(
-                        'Try Again',
-                        style: TextStyle(
-                          fontSize: 15,
-                          color: Colors.white,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
+                  child: const Center(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 3,
+                      color: Color(0xFF9B87F5),
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+                const SizedBox(height: 24),
+                const Text(
+                  'Loading your feed...',
+                  style: TextStyle(fontSize: 16, color: Colors.black87),
+                ),
+              ],
+            ),
+          );
+        }
 
-    if (_report == null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
+        if (errorMessage != null) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF6B6B).withOpacity(0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.error_outline_rounded,
+                      color: Color(0xFFFF6B6B),
+                      size: 32,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Oops!',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    errorMessage,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.black.withOpacity(0.5),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  GestureDetector(
+                    onTap: () => reportsProvider.refresh(widget.userId),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black87,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.refresh_rounded,
+                            size: 20,
+                            color: Colors.white,
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'Try Again',
+                            style: TextStyle(
+                              fontSize: 15,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        if (reports.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.05),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.description_outlined,
+                      size: 40,
+                      color: Colors.black.withOpacity(0.3),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'No entries yet',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Record your first check-in\nto start tracking',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.black.withOpacity(0.5),
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return RefreshIndicator(
+          onRefresh: () => reportsProvider.refresh(widget.userId),
+          child: ListView.builder(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(24.0),
+            itemCount: reports.length,
+            itemBuilder: (context, index) {
+              final report = reports[index];
+              return _buildReportSection(report, index);
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildReportSection(Report report, int index) {
+    final isExpanded = _expandedReportIndices.contains(index);
+    final hasContent =
+        report.ideas.isNotEmpty ||
+        report.feelings.isNotEmpty ||
+        report.actionItems.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Date header - tappable
+        GestureDetector(
+          onTap: () => _toggleReportExpansion(index),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            margin: EdgeInsets.only(
+              bottom: isExpanded ? 16 : 8,
+              top: index == 0 ? 0 : 24,
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
                   color: Colors.black.withOpacity(0.05),
-                  shape: BoxShape.circle,
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
                 ),
-                child: Icon(
-                  Icons.description_outlined,
-                  size: 40,
-                  color: Colors.black.withOpacity(0.3),
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'No reports yet',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Record your first mood check\nto generate a report',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
+              ],
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.calendar_today_rounded,
+                  size: 16,
                   color: Colors.black.withOpacity(0.5),
-                  height: 1.5,
                 ),
-              ),
-            ],
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _formatDate(report.createdAt),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.black.withOpacity(0.7),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (hasContent)
+                  AnimatedRotation(
+                    turns: isExpanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                    child: Icon(
+                      Icons.expand_more,
+                      size: 20,
+                      color: Colors.black.withOpacity(0.5),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
-      );
-    }
 
-    return RefreshIndicator(
-      onRefresh: _loadReport,
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Date header
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Text(
-                'Generated ${_formatDate(_report!.createdAt)}',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.black.withOpacity(0.6),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
+        // Content sections - animated expansion
+        AnimatedSize(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+          child: isExpanded
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Ideas section
+                    if (report.ideas.isNotEmpty) ...[
+                      _buildSectionHeader(
+                        'Ideas',
+                        Icons.lightbulb_outline,
+                        const Color(0xFFFDB43C),
+                      ),
+                      const SizedBox(height: 12),
+                      ...report.ideas.map(
+                        (idea) => _buildItemCard(idea, const Color(0xFFFDB43C)),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
 
-            // Mood dimension cards
-            _buildDimensionCard(
-              title: 'Emotional',
-              content: _report!.emotional,
-              icon: Icons.favorite,
-              color: Colors.red,
-            ),
-            const SizedBox(height: 12),
-            _buildDimensionCard(
-              title: 'Cognitive',
-              content: _report!.cognitive,
-              icon: Icons.psychology,
-              color: Colors.purple,
-            ),
-            const SizedBox(height: 12),
-            _buildDimensionCard(
-              title: 'Physical',
-              content: _report!.physical,
-              icon: Icons.fitness_center,
-              color: Colors.green,
-            ),
-            const SizedBox(height: 12),
-            _buildDimensionCard(
-              title: 'Motivational',
-              content: _report!.motivational,
-              icon: Icons.rocket_launch,
-              color: Colors.orange,
-            ),
-            const SizedBox(height: 12),
-            _buildDimensionCard(
-              title: 'Social',
-              content: _report!.social,
-              icon: Icons.people,
-              color: Colors.blue,
-            ),
-          ],
+                    // Feelings section
+                    if (report.feelings.isNotEmpty) ...[
+                      _buildSectionHeader(
+                        'Feelings',
+                        Icons.favorite_border,
+                        const Color(0xFFFF6B9D),
+                      ),
+                      const SizedBox(height: 12),
+                      ...report.feelings.map(
+                        (feeling) =>
+                            _buildItemCard(feeling, const Color(0xFFFF6B9D)),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // Action Items section
+                    if (report.actionItems.isNotEmpty) ...[
+                      _buildSectionHeader(
+                        'Action Items',
+                        Icons.check_circle_outline,
+                        const Color(0xFF4ADE80),
+                      ),
+                      const SizedBox(height: 12),
+                      ...report.actionItems.map(
+                        (actionItem) =>
+                            _buildItemCard(actionItem, const Color(0xFF4ADE80)),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                  ],
+                )
+              : const SizedBox.shrink(),
         ),
+      ],
+    );
+  }
+
+  Widget _buildSectionHeader(String title, IconData icon, Color color) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildDimensionCard({
-    required String title,
-    required String content,
-    required IconData icon,
-    required Color color,
-  }) {
+  Widget _buildItemCard(String content, Color accentColor) {
     return Container(
-      padding: const EdgeInsets.all(24.0),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: color, size: 24),
-              ),
-              const SizedBox(width: 14),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  color: color,
-                ),
-              ),
-            ],
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: accentColor.withOpacity(0.2), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
-          const SizedBox(height: 16),
-          Text(
-            content,
-            style: TextStyle(
-              fontSize: 15,
-              height: 1.6,
-              color: Colors.black.withOpacity(0.75),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 4,
+            height: 20,
+            decoration: BoxDecoration(
+              color: accentColor,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              content,
+              style: TextStyle(
+                fontSize: 15,
+                color: Colors.black.withOpacity(0.8),
+                height: 1.4,
+              ),
             ),
           ),
         ],
@@ -370,16 +467,17 @@ class _ReportScreenState extends State<ReportScreen> {
 
   String _formatDate(DateTime date) {
     final now = DateTime.now();
-    final difference = now.difference(date);
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final dateToCheck = DateTime(date.year, date.month, date.day);
 
-    if (difference.inDays == 0) {
-      return 'today at ${DateFormat.jm().format(date)}';
-    } else if (difference.inDays == 1) {
-      return 'yesterday at ${DateFormat.jm().format(date)}';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays} days ago';
+    if (dateToCheck == today) {
+      return 'Today - ${DateFormat.jm().format(date)}';
+    } else if (dateToCheck == yesterday) {
+      return 'Yesterday - ${DateFormat.jm().format(date)}';
     } else {
-      return DateFormat('MMM d, y').format(date);
+      return DateFormat('EEEE, MMM d - ').format(date) +
+          DateFormat.jm().format(date);
     }
   }
 }

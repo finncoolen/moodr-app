@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/recording_provider.dart';
+import '../providers/reports_provider.dart';
 import 'report_screen.dart';
+import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,33 +17,19 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-  }
+    // Load reports when screen initializes
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final recordingProvider = context.read<RecordingProvider>();
+      final reportsProvider = context.read<ReportsProvider>();
 
-  Future<void> _resetDailyReflection(RecordingProvider provider) async {
-    // Show confirmation dialog
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Reset Today\'s Reflection?'),
-        content: const Text(
-          'This will allow you to record again today. Your previous recording will be replaced.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Reset'),
-          ),
-        ],
-      ),
-    );
+      // Load initial reports
+      reportsProvider.loadReports(recordingProvider.userId);
 
-    if (confirm == true) {
-      await provider.resetDailyLimit();
-    }
+      // Set up callback to refresh reports after transcription completes
+      recordingProvider.onTranscriptionComplete = () {
+        reportsProvider.refresh(recordingProvider.userId);
+      };
+    });
   }
 
   @override
@@ -60,163 +48,155 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 24.0,
-              vertical: 20.0,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 20),
-
-                // Daily status indicator
-                Consumer<RecordingProvider>(
-                  builder: (context, provider, child) {
-                    return _DailyStatusIndicator(
-                      hasRecordedToday: provider.hasRecordedToday,
-                      recordingState: provider.state,
-                    );
-                  },
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24.0,
+                  vertical: 20.0,
                 ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 20),
 
-                const SizedBox(height: 20),
-
-                // Main content - transcription box or expandable grid
-                Expanded(
-                  child: Consumer<RecordingProvider>(
-                    builder: (context, provider, child) {
-                      // Show expandable grid if user has recorded today and not currently recording
-                      if (provider.hasRecordedToday &&
-                          provider.state != RecordingState.recording &&
-                          provider.state != RecordingState.processing) {
-                        return Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(32),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.85),
-                            borderRadius: BorderRadius.circular(32),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.08),
-                                blurRadius: 30,
-                                offset: const Offset(0, 10),
-                              ),
-                            ],
-                          ),
-                          child: Center(
-                            child: Text(
-                              'Content coming soon',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.black.withOpacity(0.4),
-                              ),
-                            ),
-                          ),
+                    // Daily status indicator
+                    Consumer<RecordingProvider>(
+                      builder: (context, provider, child) {
+                        return _DailyStatusIndicator(
+                          hasRecordedToday: provider.hasRecordedToday,
+                          recordingState: provider.state,
                         );
-                      }
-                      return _TranscriptionBox(provider: provider);
-                    },
-                  ),
-                ),
+                      },
+                    ),
 
-                const SizedBox(height: 32),
+                    const SizedBox(height: 20),
 
-                // Bottom section with recording button and report icon
-                SizedBox(
-                  height: 140, // Fixed height for the bottom section
-                  child: Stack(
-                    children: [
-                      // Reset button in bottom left
-                      Positioned(
-                        left: 0,
-                        bottom: 0,
-                        child: Consumer<RecordingProvider>(
-                          builder: (context, provider, child) {
-                            if (provider.hasRecordedToday &&
-                                provider.state != RecordingState.recording &&
-                                provider.state != RecordingState.processing) {
-                              return GestureDetector(
-                                onTap: () => _resetDailyReflection(provider),
-                                child: Container(
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    shape: BoxShape.circle,
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.1),
-                                        blurRadius: 12,
-                                        offset: const Offset(0, 4),
+                    // Main content - reminders box (always visible) or recording/processing status
+                    Expanded(
+                      child: Consumer<RecordingProvider>(
+                        builder: (context, provider, child) {
+                          // Show transcription status only when recording or processing
+                          if (provider.state == RecordingState.recording ||
+                              provider.state == RecordingState.processing) {
+                            return _TranscriptionBox(provider: provider);
+                          }
+                          // For all other states (idle, completed, error), show reminders
+                          return _buildRemindersBox();
+                        },
+                      ),
+                    ),
+
+                    const SizedBox(height: 32),
+
+                    // Bottom section with recording button and report icon
+                    SizedBox(
+                      height: 140, // Fixed height for the bottom section
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            // Settings button in bottom left
+                            Consumer<RecordingProvider>(
+                              builder: (context, provider, child) {
+                                if (provider.state !=
+                                        RecordingState.recording &&
+                                    provider.state !=
+                                        RecordingState.processing) {
+                                  return GestureDetector(
+                                    onTap: () => _navigateToSettings(context),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(16),
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                          colors: [
+                                            Colors.deepPurple.shade200,
+                                            Colors.purple.shade300,
+                                          ],
+                                        ),
+                                        shape: BoxShape.circle,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.deepPurple
+                                                .withOpacity(0.3),
+                                            blurRadius: 12,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
                                       ),
-                                    ],
-                                  ),
-                                  child: const Icon(
-                                    Icons.refresh_rounded,
-                                    size: 24,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                              );
-                            }
-                            return const SizedBox.shrink();
-                          },
-                        ),
-                      ),
-
-                      // Recording button in center bottom
-                      Align(
-                        alignment: Alignment.bottomCenter,
-                        child: Consumer<RecordingProvider>(
-                          builder: (context, provider, child) {
-                            return _RecordingButton(provider: provider);
-                          },
-                        ),
-                      ),
-
-                      // Report button in bottom right
-                      Positioned(
-                        right: 0,
-                        bottom: 70,
-                        child: Consumer<RecordingProvider>(
-                          builder: (context, provider, child) {
-                            if (provider.state != RecordingState.recording &&
-                                provider.state != RecordingState.processing) {
-                              return GestureDetector(
-                                onTap: () => _navigateToReport(context),
-                                child: Container(
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    shape: BoxShape.circle,
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.1),
-                                        blurRadius: 12,
-                                        offset: const Offset(0, 4),
+                                      child: const Icon(
+                                        Icons.settings,
+                                        size: 24,
+                                        color: Colors.white,
                                       ),
-                                    ],
-                                  ),
-                                  child: const Icon(
-                                    Icons.article_outlined,
-                                    size: 24,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                              );
-                            }
-                            return const SizedBox.shrink();
-                          },
+                                    ),
+                                  );
+                                }
+                                return const SizedBox.shrink();
+                              },
+                            ),
+
+                            // Recording button in center bottom
+                            Consumer<RecordingProvider>(
+                              builder: (context, provider, child) {
+                                return _RecordingButton(provider: provider);
+                              },
+                            ),
+
+                            // Report button in bottom right
+                            Consumer<RecordingProvider>(
+                              builder: (context, provider, child) {
+                                if (provider.state !=
+                                        RecordingState.recording &&
+                                    provider.state !=
+                                        RecordingState.processing) {
+                                  return GestureDetector(
+                                    onTap: () => _navigateToReport(context),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(16),
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                          colors: [
+                                            Colors.deepPurple.shade300,
+                                            Colors.purple.shade400,
+                                          ],
+                                        ),
+                                        shape: BoxShape.circle,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.deepPurple
+                                                .withOpacity(0.3),
+                                            blurRadius: 12,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Icon(
+                                        Icons.article_outlined,
+                                        size: 24,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return const SizedBox.shrink();
+                              },
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
-                ),
+                    ),
 
-                const SizedBox(height: 20),
-              ],
-            ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -231,6 +211,215 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (context) => ReportScreen(userId: provider.userId),
       ),
     );
+  }
+
+  void _navigateToSettings(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const SettingsScreen()),
+    );
+  }
+
+  Widget _buildRemindersBox() {
+    return Consumer<ReportsProvider>(
+      builder: (context, reportsProvider, child) {
+        final isLoading = reportsProvider.isLoading;
+        final reminders = reportsProvider.reminders;
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.85),
+            borderRadius: BorderRadius.circular(32),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 30,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: isLoading
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const CircularProgressIndicator(
+                        strokeWidth: 3,
+                        color: Color(0xFF9B87F5),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Loading reminders...',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.black.withOpacity(0.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : reminders.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.notifications_off_outlined,
+                        size: 48,
+                        color: Colors.black.withOpacity(0.3),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No Reminders',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black.withOpacity(0.4),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.notifications_active,
+                          size: 24,
+                          color: Color(0xFF9B87F5),
+                        ),
+                        const SizedBox(width: 12),
+                        const Text(
+                          'Your Reminders',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF9B87F5),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: reminders.length,
+                        itemBuilder: (context, index) {
+                          final reminder = reminders[index];
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF9B87F5).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: const Color(0xFF9B87F5).withOpacity(0.3),
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 6,
+                                  height: 6,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFF9B87F5),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    reminder.text,
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      color: Colors.black.withOpacity(0.8),
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                GestureDetector(
+                                  onTap: () =>
+                                      _deleteReminder(context, reminder),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Icon(
+                                      Icons.delete_outline,
+                                      size: 18,
+                                      color: Colors.red.shade400,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+        );
+      },
+    );
+  }
+
+  Future<void> _deleteReminder(BuildContext context, dynamic reminder) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Reminder?'),
+        content: Text(
+          'Are you sure you want to delete this reminder?\n\n"${reminder.text}"',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && context.mounted) {
+      try {
+        await context.read<ReportsProvider>().deleteReminder(
+          reminder.reportId,
+          reminder.index,
+        );
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Reminder deleted'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to delete reminder: $e'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    }
   }
 }
 
@@ -261,63 +450,6 @@ class _TranscriptionBox extends StatelessWidget {
 
   Widget _buildContent(BuildContext context) {
     switch (provider.state) {
-      case RecordingState.idle:
-        return Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                'Daily reflection',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.black.withOpacity(0.5),
-                  letterSpacing: 0.5,
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'How do you feel\nabout your current\nemotions?',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w600,
-                  height: 1.3,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 32),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF5F1ED),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Tap below to start',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.black.withOpacity(0.6),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Icon(
-                      Icons.arrow_forward,
-                      size: 16,
-                      color: Colors.black.withOpacity(0.6),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-
       case RecordingState.recording:
         return Center(
           child: Column(
@@ -455,87 +587,12 @@ class _TranscriptionBox extends StatelessWidget {
           ),
         );
 
+      case RecordingState.idle:
       case RecordingState.completed:
-        return SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          const Color(0xFF7ED957).withOpacity(0.2),
-                          const Color(0xFF7ED957).withOpacity(0.1),
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(
-                      Icons.check_circle_rounded,
-                      color: Color(0xFF7ED957),
-                      size: 22,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  const Text(
-                    'Your reflection',
-                    style: TextStyle(
-                      fontSize: 19,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 22),
-              _TypewriterText(text: provider.transcribedText),
-            ],
-          ),
-        );
-
       case RecordingState.error:
-        return Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 60,
-                height: 60,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFF6B6B).withOpacity(0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.error_outline_rounded,
-                  color: Color(0xFFFF6B6B),
-                  size: 32,
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Oops!',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                provider.errorMessage,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.black.withOpacity(0.5),
-                ),
-              ),
-            ],
-          ),
-        );
+        // These states are now handled by showing the reminders box instead
+        // This fallback should not be reached in normal flow
+        return const SizedBox.shrink();
     }
   }
 }
@@ -562,9 +619,9 @@ class _RecordingButtonState extends State<_RecordingButton>
 
     // Pulse animation for idle state
     _pulseController = AnimationController(
-      duration: const Duration(milliseconds: 2000),
+      duration: const Duration(milliseconds: 1500),
       vsync: this,
-    )..repeat(reverse: true);
+    );
 
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.08).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
@@ -579,6 +636,25 @@ class _RecordingButtonState extends State<_RecordingButton>
     _scaleAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(
       CurvedAnimation(parent: _scaleController, curve: Curves.easeInOut),
     );
+
+    // Start pulse animation only if recording not completed
+    if (!widget.provider.hasRecordedToday) {
+      _pulseController.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void didUpdateWidget(_RecordingButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // Stop pulse animation when recording is completed
+    if (widget.provider.hasRecordedToday && _pulseController.isAnimating) {
+      _pulseController.stop();
+      _pulseController.value = 1.0;
+    } else if (!widget.provider.hasRecordedToday &&
+        !_pulseController.isAnimating) {
+      _pulseController.repeat(reverse: true);
+    }
   }
 
   @override
@@ -627,7 +703,7 @@ class _RecordingButtonState extends State<_RecordingButton>
                           height: 100,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: Colors.black87.withOpacity(0.05),
+                            color: Colors.deepPurple.withOpacity(0.1),
                           ),
                         ),
                       ),
@@ -720,11 +796,22 @@ class _RecordingButtonState extends State<_RecordingButton>
         end: Alignment.bottomRight,
         colors: [Color(0xFFFF8A8A), Color(0xFFFF6B6B)],
       );
-    } else {
+    } else if (widget.provider.hasRecordedToday) {
+      // Paler pinky purple gradient for completed state
       return const LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [Color(0xFF3A3A3A), Color(0xFF1A1A1A)],
+        colors: [
+          Color.fromARGB(255, 218, 189, 250),
+          Color.fromARGB(255, 189, 145, 250),
+        ],
+      );
+    } else {
+      // Purple gradient for idle state
+      return LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Colors.deepPurple.shade400, Colors.purple.shade300],
       );
     }
   }
@@ -734,8 +821,10 @@ class _RecordingButtonState extends State<_RecordingButton>
       return const Color(0xFF9B87F5);
     } else if (isRecording) {
       return const Color(0xFFFF6B6B);
+    } else if (widget.provider.hasRecordedToday) {
+      return const Color(0xFFD4B5FF);
     } else {
-      return Colors.black87;
+      return Colors.deepPurple;
     }
   }
 

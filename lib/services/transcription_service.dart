@@ -2,12 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../config/app_config.dart';
 
 class TranscriptionService {
-  // For Android emulator, use 10.0.2.2 instead of localhost
-  // For iOS simulator, localhost works
-  // For physical devices, use your computer's local IP address
-  static const String _baseUrl = 'http://192.168.1.248:8000';
+  static final String _baseUrl = AppConfig.apiBaseUrl;
+  final SupabaseClient _supabase = Supabase.instance.client;
 
   /// Transcribe an audio file using the FastAPI backend
   /// Returns the transcribed text or status message
@@ -24,6 +25,12 @@ class TranscriptionService {
 
     // Create multipart request
     final request = http.MultipartRequest('POST', uri);
+
+    // Add authentication token
+    final token = _supabase.auth.currentSession?.accessToken;
+    if (token != null) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
 
     // Add the audio file
     request.files.add(

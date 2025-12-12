@@ -5,7 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../services/recording_service.dart';
 import '../services/transcription_service.dart';
 
 enum RecordingState { idle, recording, processing, completed, error }
@@ -13,9 +15,8 @@ enum RecordingState { idle, recording, processing, completed, error }
 class RecordingProvider extends ChangeNotifier {
   final AudioRecorder _audioRecorder = AudioRecorder();
   final TranscriptionService _transcriptionService = TranscriptionService();
-
-  // User ID for API requests (hardcoded for now, can be replaced with auth later)
-  final String _userId = 'user_123';
+  final RecordingService _recordingService = RecordingService();
+  final SupabaseClient _supabase = Supabase.instance.client;
 
   RecordingState _state = RecordingState.idle;
   String _transcribedText = '';
@@ -24,6 +25,10 @@ class RecordingProvider extends ChangeNotifier {
   int _remainingSeconds = 60;
   Timer? _recordingTimer;
   bool _hasRecordedToday = false;
+  bool _isCheckingStatus = false;
+
+  // Callback to notify when transcription is complete
+  VoidCallback? onTranscriptionComplete;
 
   // Getters
   RecordingState get state => _state;
@@ -32,8 +37,9 @@ class RecordingProvider extends ChangeNotifier {
   String get errorMessage => _errorMessage;
   int get remainingSeconds => _remainingSeconds;
   bool get isRecording => _state == RecordingState.recording;
-  String get userId => _userId;
+  String get userId => _supabase.auth.currentUser?.id ?? '';
   bool get hasRecordedToday => _hasRecordedToday;
+  bool get isCheckingStatus => _isCheckingStatus;
   bool get canRecord =>
       !_hasRecordedToday && _state != RecordingState.completed;
 
@@ -41,14 +47,37 @@ class RecordingProvider extends ChangeNotifier {
     _checkDailyUsage();
   }
 
-  /// Check if user has already recorded today
+  /// Check if user has already recorded today using server-side check
+  /// Falls back to local storage if offline or API fails
   Future<void> _checkDailyUsage() async {
-    final prefs = await SharedPreferences.getInstance();
-    final lastRecordingDate = prefs.getString('last_recording_date');
-    final today = DateTime.now().toIso8601String().split('T')[0];
-
-    _hasRecordedToday = lastRecordingDate == today;
+    _isCheckingStatus = true;
     notifyListeners();
+
+    try {
+      // Try server-side check first
+      final result = await _recordingService.canRecordToday();
+      _hasRecordedToday = result['has_recorded_today'] as bool;
+
+      // Update local cache with server result
+      final prefs = await SharedPreferences.getInstance();
+      if (_hasRecordedToday) {
+        final today = DateTime.now().toIso8601String().split('T')[0];
+        await prefs.setString('last_recording_date', today);
+      } else {
+        // Clear local cache if server says can record
+        await prefs.remove('last_recording_date');
+      }
+    } catch (e) {
+      // Fallback to local check if server unavailable
+      debugPrint('Server check failed, using local fallback: $e');
+      final prefs = await SharedPreferences.getInstance();
+      final lastRecordingDate = prefs.getString('last_recording_date');
+      final today = DateTime.now().toIso8601String().split('T')[0];
+      _hasRecordedToday = lastRecordingDate == today;
+    } finally {
+      _isCheckingStatus = false;
+      notifyListeners();
+    }
   }
 
   /// Mark today as recorded
@@ -58,6 +87,11 @@ class RecordingProvider extends ChangeNotifier {
     await prefs.setString('last_recording_date', today);
     _hasRecordedToday = true;
     notifyListeners();
+  }
+
+  /// Refresh recording status from server
+  Future<void> refreshStatus() async {
+    await _checkDailyUsage();
   }
 
   /// Start recording audio for up to 1 minute
@@ -148,7 +182,7 @@ class RecordingProvider extends ChangeNotifier {
     try {
       final transcription = await _transcriptionService.transcribeAudio(
         filePath,
-        _userId,
+        userId,
       );
       _transcribedText = transcription;
       _state = RecordingState.completed;
@@ -157,6 +191,9 @@ class RecordingProvider extends ChangeNotifier {
       await _markTodayAsRecorded();
 
       notifyListeners();
+
+      // Notify that transcription is complete (listeners can refresh reports)
+      onTranscriptionComplete?.call();
     } catch (e) {
       _state = RecordingState.error;
       _errorMessage = 'Transcription failed: $e';
